@@ -1,4 +1,4 @@
-name: Build and Deploy Qt 6.8.3 EXE
+name: Build and Deploy Qt 6.8.3 EXE (strict build-dir search)
 
 on:
   push:
@@ -11,7 +11,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1) Checkout
+      # 1) Checkout code
       - name: Checkout code
         uses: actions/checkout@v3
 
@@ -22,29 +22,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install aqtinstall
 
-      # 3) Download Qt 6.8.3 via aqtinstall & add bin to PATH
-      - name: Download Qt 6.8.3 and locate windeployqt
+      # 3) Download Qt 6.8.3 & locate windeployqt
+      - name: Download Qt and locate windeployqt
         shell: pwsh
         run: |
-          # ننزل Qt 6.8.3 مع MinGW
           aqt install-qt windows desktop 6.8.3 win64_mingw --outputdir Qt
-          
           $qtRoot = "${{ github.workspace }}\Qt\6.8.3"
-          Write-Host "🔍 Scanning $qtRoot for a spec folder containing bin\windeployqt.exe"
-          
-          # نعثر على أول مجلد فرعي يحوي windeployqt.exe
           $spec = Get-ChildItem -Path $qtRoot -Directory |
                   Where-Object { Test-Path (Join-Path $_.FullName 'bin\windeployqt.exe') } |
                   Select-Object -First 1
-
-          if (-not $spec) {
-            Write-Error "❌ لم يتم العثور على windeployqt.exe تحت $qtRoot"
-            exit 1
-          }
+          if (-not $spec) { Write-Error "❌ windeployqt.exe not found under $qtRoot"; exit 1 }
           $qtBin = Join-Path $spec.FullName 'bin'
-          Write-Host "✅ Found Qt 6.8.3 bin at: $qtBin"
-          
-          # نضيف Qt bin إلى PATH
+          Write-Host "✅ Found Qt bin at: $qtBin"
           "$qtBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       # 4) Build the project
@@ -54,26 +43,27 @@ jobs:
           cd Packet_Versions/Packet1
           qmake test_0.pro CONFIG-=no_main CONFIG+=console
           mingw32-make
+          # خزّن مسار مجلد البناء للخيار لاحقاً
+          "BUILD_DIR=$(Get-Location)\build" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # 5) Find generated EXE and its directory
-      - name: Find generated .exe
+      # 5) Find the generated EXE *only* under BUILD_DIR
+      - name: Find generated .exe in build dir
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path Packet_Versions/Packet1 -Recurse -Filter *.exe |
-                 Where-Object { $_.DirectoryName -match 'Desktop_Qt_6.8.3' } |
-                 Select-Object -First 1
-
+          $buildDir = $env:BUILD_DIR
+          Write-Host "🔍 Searching for .exe under $buildDir"
+          $exe = Get-ChildItem -Path $buildDir -Recurse -Filter '*.exe' | Select-Object -First 1
           if (-not $exe) {
-            Write-Error "❌ لم يتم العثور على أي ملف .exe من build Qt 6.8.3"
+            Write-Error "❌ No .exe found under build directory $buildDir"
             exit 1
           }
           $exePath = $exe.FullName
           $exeDir  = Split-Path $exePath -Parent
-          Write-Host "✅ Found EXE at: $exePath"
+          Write-Host "✅ Found built EXE at: $exePath"
           "EXE_PATH=$exePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "EXE_DIR=$exeDir"   | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # 6) Deploy Qt dependencies
+      # 6) Deploy dependencies with windeployqt
       - name: Deploy Qt dependencies with windeployqt
         shell: pwsh
         run: |
@@ -82,7 +72,7 @@ jobs:
           windeployqt (Split-Path $env:EXE_PATH -Leaf)
           Pop-Location
 
-      # 7) Upload all files under EXE_DIR (includes .exe, .dll, plugins…)
+      # 7) Upload everything in EXE_DIR
       - name: Upload deployed files as artifact
         uses: actions/upload-artifact@v4
         with:
