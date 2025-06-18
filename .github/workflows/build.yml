@@ -1,4 +1,4 @@
-name: Build and Deploy Qt EXE using aqtinstall (fixed deploy)
+name: Build and Deploy Qt EXE using aqtinstall (fixed upload)
 
 on:
   push:
@@ -11,25 +11,29 @@ jobs:
     runs-on: windows-latest
 
     steps:
+      # 1) Checkout
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # 2) Install aqtinstall
       - name: Install aqtinstall
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install aqtinstall
 
-      - name: Download Qt via aqtinstall
+      # 3) Download Qt via aqtinstall & add windeployqt to PATH
+      - name: Download Qt and locate windeployqt
         shell: pwsh
         run: |
           aqt install-qt windows desktop 6.8.3 win64_mingw --outputdir Qt
-          # أضِف bin لأي نسخة Qt وجدت
           $windeploy = Get-ChildItem -Path "${{ github.workspace }}\Qt" -Recurse -Filter windeployqt.exe | Select-Object -First 1
           if (-not $windeploy) { Write-Error "❌ windeployqt.exe not found" ; exit 1 }
+          # أضف مسار bin الخاص بالأداة إلى PATH
           "$($windeploy.DirectoryName)" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           Write-Host "✅ windeployqt found at $($windeploy.FullName)"
 
+      # 4) Build the project
       - name: Build test_0.pro
         shell: pwsh
         run: |
@@ -37,32 +41,34 @@ jobs:
           qmake test_0.pro CONFIG-=no_main CONFIG+=console
           mingw32-make
 
+      # 5) Find the generated EXE and its directory
       - name: Find generated .exe
         shell: pwsh
         run: |
           $exe = Get-ChildItem -Path Packet_Versions/Packet1 -Recurse -Filter *.exe |
                  Where-Object { $_.FullName -notmatch 'windeployqt' } |
                  Select-Object -First 1
-          if (-not $exe) { Write-Error "❌ No .exe found after build" ; exit 1 }
-          Write-Host "✅ Found EXE at: $($exe.FullName)"
-          "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          if (-not $exe) { Write-Error "❌ No .exe found after build"; exit 1 }
+          $exePath = $exe.FullName
+          $exeDir  = Split-Path $exePath -Parent
+          Write-Host "✅ Found EXE at: $exePath"
+          # صدّر المتغيرين للبيئة
+          "EXE_PATH=$exePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EXE_DIR=$exeDir"   | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Deploy Qt dependencies
+      # 6) Deploy Qt dependencies
+      - name: Deploy Qt dependencies with windeployqt
         shell: pwsh
         run: |
           Write-Host "🚀 Deploying dependencies for $env:EXE_PATH"
-          # تأكد أنّ windeployqt في PATH
-          Get-Command windeployqt
-          # شغّل windeployqt في مجلد EXE
-          $outDir = Split-Path $env:EXE_PATH -Parent
-          Push-Location $outDir
+          Push-Location $env:EXE_DIR
           windeployqt (Split-Path $env:EXE_PATH -Leaf)
           Pop-Location
 
-      - name: Upload artifact
+      # 7) Upload all files under EXE_DIR (includes .exe, .dll, plugins…)
+      - name: Upload deployed-exe-with-dlls artifact
         uses: actions/upload-artifact@v4
         with:
           name: deployed-exe-with-dlls
           path: |
-            ${{ env:EXE_PATH }}         # EXE نفسه
-            $(Split-Path ${{ env:EXE_PATH }} -Parent)/**/*  # كل ملفات المجلد الفرعي
+            ${{ env.EXE_DIR }}/**/*
