@@ -1,4 +1,4 @@
-name: Build and Deploy Qt EXE using aqtinstall
+name: Build and Deploy Qt EXE using aqtinstall (dynamic spec)
 
 on:
   push:
@@ -19,35 +19,47 @@ jobs:
       - name: Debug workspace
         shell: pwsh
         run: |
-          Write-Host "🔍 Current directory:"
-          Get-Location
-          Write-Host "📦 All files in workspace:"
-          Get-ChildItem -Recurse -Force | Select-Object FullName
+          Write-Host "🔍 Current directory:"; Get-Location
+          Write-Host "📦 Files in workspace:"; Get-ChildItem -Recurse -Force | Select-Object FullName
 
-      # 3) Ensure Python pip is up to date & install aqtinstall
+      # 3) Install aqtinstall
       - name: Install aqtinstall
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install aqtinstall
 
-      # 4) Download Qt (including windeployqt) via aqtinstall
-      - name: Download Qt via aqtinstall
+      # 4) Download Qt via aqtinstall & discover spec dynamically
+      - name: Download Qt and locate windeployqt
         shell: pwsh
         run: |
-          # نثبت Qt في مجلد Qt داخل workspace
+          # 4.1) Download Qt
           aqt install-qt windows desktop 6.8.3 win64_mingw --outputdir Qt
-          # نضيف مجلد bin تبع Qt للـ PATH
-          $qtBin = "${{ github.workspace }}\Qt\6.8.3\win64_mingw\bin"
-          if (-Not (Test-Path $qtBin)) {
-            Write-Error "❌ مجلد Qt bin غير موجود: $qtBin"
+          
+          $qtRoot = "${{ github.workspace }}\Qt\6.8.3"
+          Write-Host "🔍 Looking under $qtRoot for a spec folder containing bin\windeployqt.exe"
+
+          # 4.2) List subfolders for debugging
+          Get-ChildItem -Path $qtRoot -Directory | ForEach-Object { Write-Host " - Subdir:" $_.Name }
+
+          # 4.3) Find the actual spec folder
+          $spec = Get-ChildItem -Path $qtRoot -Directory `
+                    | Where-Object { Test-Path (Join-Path $_.FullName 'bin\windeployqt.exe') } `
+                    | Select-Object -First 1
+
+          if (-not $spec) {
+            Write-Error "❌ No spec folder with windeployqt.exe found under $qtRoot"
             exit 1
           }
-          Write-Host "✅ Qt bin found at $qtBin"
-          " $qtBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          Write-Host "✅ Found Qt spec folder:" $spec.Name
 
-      # 5) Build the .pro file
-      - name: Build test_0.pro using qmake + mingw32-make
+          # 4.4) Add its bin to PATH
+          $qtBin = Join-Path $spec.FullName 'bin'
+          Write-Host "🔧 Adding Qt bin to PATH: $qtBin"
+          "$qtBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # 5) Build the project
+      - name: Build test_0.pro with qmake + mingw32-make
         shell: pwsh
         run: |
           cd Packet_Versions/Packet1
@@ -58,30 +70,26 @@ jobs:
       - name: Find generated .exe
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Recurse -Filter *.exe | 
+          $exe = Get-ChildItem -Recurse -Filter '*.exe' |
                  Where-Object { $_.FullName -notmatch 'windeployqt' } |
                  Select-Object -First 1
+
           if (-not $exe) {
-            Write-Error "❌ لم يتم العثور على أي ملف .exe بعد البناء"
+            Write-Error "❌ No .exe found after build"
             exit 1
           }
           Write-Host "✅ Found EXE at: $($exe.FullName)"
-          echo "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # 7) Deploy Qt dependencies via windeployqt
+      # 7) Deploy Qt dependencies
       - name: Deploy Qt dependencies with windeployqt
         shell: pwsh
         run: |
           $exePath = $env:EXE_PATH
-          Write-Host "🚀 Deploying QT dependencies for $exePath"
-          $windeploy = "${{ github.workspace }}\Qt\6.8.3\win64_mingw\bin\windeployqt.exe"
-          if (-Not (Test-Path $windeploy)) {
-            Write-Error "❌ windeployqt.exe not found at $windeploy"
-            exit 1
-          }
-          & $windeploy $exePath
+          Write-Host "🚀 Running windeployqt on $exePath"
+          windeployqt $exePath
 
-      # 8) Upload all EXEs and DLLs as artifact
+      # 8) Upload as artifact
       - name: Upload built files as artifact
         uses: actions/upload-artifact@v4
         with:
