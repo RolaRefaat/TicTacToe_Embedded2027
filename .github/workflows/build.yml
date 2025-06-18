@@ -43,7 +43,7 @@ jobs:
 
           $exe = Get-ChildItem -Filter *.exe | Select-Object -First 1
           if (-not $exe) {
-            Write-Error "❌ لم يتم العثور على أي ملف .exe في $buildPath"
+            Write-Error "❌ cannot find .exe في $buildPath"
             exit 1
           } else {
             Write-Host "✅ Found EXE: $($exe.Name)"
@@ -51,7 +51,7 @@ jobs:
 
           $deployTool = "$env:Qt6_DIR\bin\windeployqt.exe"
           if (-Not (Test-Path $deployTool)) {
-            Write-Error "❌ windeployqt.exe مش موجود في: $deployTool"
+            Write-Error "❌ windeployqt.exe : $deployTool"
             exit 1
           }
 
