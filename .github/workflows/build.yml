@@ -34,32 +34,31 @@ jobs:
           qmake test_0.pro CONFIG-=no_main CONFIG+=console
           mingw32-make
 
-      - name: Echo Qt6_DIR path
-        shell: pwsh
-        run: |
-          echo "Qt6_DIR is: $env:Qt6_DIR"
-
       - name: Deploy Qt dependencies using windeployqt
         shell: pwsh
         run: |
-          cd Packet_Versions/Packet1
-          Write-Host "🔍 Looking for .exe files..."
-          $exe = Get-ChildItem -Recurse -Filter *.exe | Where-Object { $_.Name -notmatch "moc|rcc|uic|test" } | Select-Object -First 1
+          $buildPath = "Packet_Versions/Packet1/build/Desktop_Qt_6_9_0_MinGW_64_bit-game/release"
+          Write-Host "🔍 Going to: $buildPath"
+          cd $buildPath
+
+          $exe = Get-ChildItem -Filter *.exe | Select-Object -First 1
           if (-not $exe) {
-            Write-Error "❌ لم يتم العثور على أي ملف .exe"
+            Write-Error "❌ لم يتم العثور على أي ملف .exe في $buildPath"
             exit 1
           } else {
-            Write-Host "✅ Found EXE: $($exe.FullName)"
+            Write-Host "✅ Found EXE: $($exe.Name)"
           }
+
           $deployTool = "$env:Qt6_DIR\bin\windeployqt.exe"
           if (-Not (Test-Path $deployTool)) {
-            Write-Error "❌ لم يتم العثور على windeployqt.exe في: $deployTool"
+            Write-Error "❌ windeployqt.exe مش موجود في: $deployTool"
             exit 1
           }
-          & $deployTool $exe.FullName
+
+          & $deployTool $exe.Name
 
       - name: Upload deployed executable with Qt DLLs
         uses: actions/upload-artifact@v4
         with:
           name: deployed-exe-with-dlls
-          path: Packet_Versions/Packet1/**
+          path: Packet_Versions/Packet1/build/Desktop_Qt_6_9_0_MinGW_64_bit-game/release/**
