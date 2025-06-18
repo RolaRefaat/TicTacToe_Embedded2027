@@ -11,47 +11,47 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Debug workspace
-      run: |
-        pwd
-        ls -R
+      - name: Debug workspace
+        run: |
+          pwd
+          ls -R
 
-    - name: Install Qt (MinGW)
-      uses: jurplel/install-qt-action@v3
-      with:
-        version: '6.8.3'
-        arch: 'win64_mingw'
+      - name: Install Qt (MinGW)
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.8.3'
+          arch: 'win64_mingw'
 
-    - name: Add Qt bin directory to PATH
-      run: echo "$env:Qt6_DIR\bin" >> $env:GITHUB_PATH
+      - name: Add Qt bin directory to PATH
+        run: echo "$env:Qt6_DIR\bin" >> $env:GITHUB_PATH
 
-    - name: Build test_0.pro inside Packets_Versions
-      run: |
-        cd Packet_Versions/Packet1
-        qmake test_0.pro CONFIG-=no_main CONFIG+=console
-        mingw32-make
+      - name: Build test_0.pro inside Packets_Versions
+        run: |
+          cd Packet_Versions/Packet1
+          qmake test_0.pro CONFIG-=no_main CONFIG+=console
+          mingw32-make
 
-    - name: Echo Qt6_DIR path
-      run: echo "Qt6_DIR is: $env:Qt6_DIR"
+      - name: Echo Qt6_DIR path
+        run: echo "Qt6_DIR is: $env:Qt6_DIR"
 
-    - name: Deploy Qt dependencies using windeployqt
-      shell: pwsh
-      run: |
-        cd Packet_Versions/Packet1
-        $exe = Get-ChildItem *.exe | Select-Object -First 1
-        if ($exe -eq $null) {
-          Write-Error "❌ لم يتم العثور على أي ملف .exe في Packet1"
-          exit 1
-        } else {
-          Write-Host "✅ Found EXE: $($exe.Name)"
-          & "$env:Qt6_DIR\bin\windeployqt.exe" $exe.Name
-        }
+      - name: Deploy Qt dependencies using windeployqt
+        shell: pwsh
+        run: |
+          cd Packet_Versions/Packet1
+          $exe = Get-ChildItem *.exe | Select-Object -First 1
+          if ($exe -eq $null) {
+            Write-Error "❌ لم يتم العثور على أي ملف .exe في Packet1"
+            exit 1
+          } else {
+            Write-Host "✅ Found EXE: $($exe.Name)"
+            & "$env:Qt6_DIR\bin\windeployqt.exe" $exe.Name
+          }
 
-    - name: Upload deployed executable with Qt DLLs
-      uses: actions/upload-artifact@v4
-      with:
-        name: deployed-executable
-        path: Packet_Versions/Packet1/**
+      - name: Upload deployed executable with Qt DLLs
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-executable
+          path: Packet_Versions/Packet1/**
