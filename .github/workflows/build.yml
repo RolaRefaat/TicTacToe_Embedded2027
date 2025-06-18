@@ -34,8 +34,11 @@ jobs:
         qmake test_0.pro CONFIG-=no_main CONFIG+=console
         mingw32-make
 
+    - name: Debug after build
+      run: ls -R
+
     - name: Upload build artifacts (EXE files)
       uses: actions/upload-artifact@v4
       with:
         name: built-executables
-        path: Packet_Versions/Packet1/*.exe
+        path: '**/*.exe'
