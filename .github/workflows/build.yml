@@ -28,7 +28,7 @@ jobs:
       - name: Add Qt bin directory to PATH
         run: echo "$env:Qt6_DIR\bin" >> $env:GITHUB_PATH
 
-      - name: Build test_0.pro inside Packets_Versions
+      - name: Build test_0.pro inside Packet_Versions
         run: |
           cd Packet_Versions/Packet1
           qmake test_0.pro CONFIG-=no_main CONFIG+=console
@@ -43,19 +43,22 @@ jobs:
         shell: pwsh
         run: |
           cd Packet_Versions/Packet1
-          $exe = Get-ChildItem -Filter *.exe | Select-Object -First 1
+          Write-Host "🔍 Looking for .exe files..."
+          $exe = Get-ChildItem -Recurse -Filter *.exe | Where-Object { $_.Name -notmatch "moc|rcc|uic|test" } | Select-Object -First 1
           if (-not $exe) {
             Write-Error "❌ لم يتم العثور على أي ملف .exe"
             exit 1
+          } else {
+            Write-Host "✅ Found EXE: $($exe.FullName)"
           }
           $deployTool = "$env:Qt6_DIR\bin\windeployqt.exe"
           if (-Not (Test-Path $deployTool)) {
             Write-Error "❌ لم يتم العثور على windeployqt.exe في: $deployTool"
             exit 1
           }
-          & $deployTool $exe.Name
+          & $deployTool $exe.FullName
 
-      - name: Upload deployed executable
+      - name: Upload deployed executable with Qt DLLs
         uses: actions/upload-artifact@v4
         with:
           name: deployed-exe-with-dlls
