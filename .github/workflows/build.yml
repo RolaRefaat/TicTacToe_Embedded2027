@@ -11,59 +11,81 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      # 1) Checkout
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Debug workspace
-      shell: pwsh
-      run: |
-        Write-Host "🔍 Current directory:"
-        Get-Location
+      # 2) Debug workspace
+      - name: Debug workspace
+        shell: pwsh
+        run: |
+          Write-Host "🔍 Current directory:"
+          Get-Location
+          Write-Host "📦 All files in workspace:"
+          Get-ChildItem -Recurse -Force | Select-Object FullName
 
-        Write-Host "📦 All files in workspace:"
-        Get-ChildItem -Recurse -Force | Select-Object FullName
+      # 3) Ensure Python pip is up to date & install aqtinstall
+      - name: Install aqtinstall
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install aqtinstall
 
-    - name: Install Qt via aqtinstall (with windeployqt)
-      shell: bash
-      run: |
-        pip install aqtinstall
-        aqt install-qt windows desktop 6.8.3 win64_mingw -m qttools qtbase
-        echo "$GITHUB_WORKSPACE/Qt/6.8.3/mingw_64/bin" >> $GITHUB_PATH
+      # 4) Download Qt (including windeployqt) via aqtinstall
+      - name: Download Qt via aqtinstall
+        shell: pwsh
+        run: |
+          # نثبت Qt في مجلد Qt داخل workspace
+          aqt install-qt windows desktop 6.8.3 win64_mingw --outputdir Qt
+          # نضيف مجلد bin تبع Qt للـ PATH
+          $qtBin = "${{ github.workspace }}\Qt\6.8.3\win64_mingw\bin"
+          if (-Not (Test-Path $qtBin)) {
+            Write-Error "❌ مجلد Qt bin غير موجود: $qtBin"
+            exit 1
+          }
+          Write-Host "✅ Qt bin found at $qtBin"
+          " $qtBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-    - name: Add Qt to PATH (Windows path version)
-      shell: pwsh
-      run: |
-        echo "${{ github.workspace }}\Qt\6.8.3\mingw_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      # 5) Build the .pro file
+      - name: Build test_0.pro using qmake + mingw32-make
+        shell: pwsh
+        run: |
+          cd Packet_Versions/Packet1
+          qmake test_0.pro CONFIG-=no_main CONFIG+=console
+          mingw32-make
 
-    - name: Build test_0.pro using qmake + mingw32-make
-      shell: pwsh
-      run: |
-        cd Packet_Versions/Packet1
-        qmake test_0.pro CONFIG-=no_main CONFIG+=console
-        mingw32-make
+      # 6) Find the generated EXE
+      - name: Find generated .exe
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Recurse -Filter *.exe | 
+                 Where-Object { $_.FullName -notmatch 'windeployqt' } |
+                 Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "❌ لم يتم العثور على أي ملف .exe بعد البناء"
+            exit 1
+          }
+          Write-Host "✅ Found EXE at: $($exe.FullName)"
+          echo "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-    - name: Find and deploy EXE with windeployqt
-      shell: pwsh
-      run: |
-        $exe = Get-ChildItem -Path . -Recurse -Filter *.exe | Where-Object { $_.FullName -notmatch '\\windeployqt\\' } | Select-Object -First 1
+      # 7) Deploy Qt dependencies via windeployqt
+      - name: Deploy Qt dependencies with windeployqt
+        shell: pwsh
+        run: |
+          $exePath = $env:EXE_PATH
+          Write-Host "🚀 Deploying QT dependencies for $exePath"
+          $windeploy = "${{ github.workspace }}\Qt\6.8.3\win64_mingw\bin\windeployqt.exe"
+          if (-Not (Test-Path $windeploy)) {
+            Write-Error "❌ windeployqt.exe not found at $windeploy"
+            exit 1
+          }
+          & $windeploy $exePath
 
-        if (-not $exe) {
-          Write-Error "❌ لم يتم العثور على أي ملف .exe" ; exit 1
-        }
-
-        Write-Host "✅ Found EXE: $($exe.FullName)"
-
-        $windeploy = Get-ChildItem -Path "${{ github.workspace }}\Qt" -Recurse -Filter windeployqt.exe | Select-Object -First 1
-        if (-not $windeploy) {
-          Write-Error "❌ windeployqt.exe not found" ; exit 1
-        }
-
-        & "$($windeploy.FullName)" "$($exe.FullName)"
-
-    - name: Upload built files as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: deployed-exe-with-dlls
-        path: |
-          **/*.exe
-          **/*.dll
+      # 8) Upload all EXEs and DLLs as artifact
+      - name: Upload built files as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployed-exe-with-dlls
+          path: |
+            **/*.exe
+            **/*.dll
