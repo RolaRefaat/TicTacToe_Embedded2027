@@ -23,11 +23,12 @@ jobs:
         Write-Host "📦 All files in workspace:"
         Get-ChildItem -Recurse -Force | Select-Object FullName
 
-    - name: Install Qt (MinGW)
+    - name: Install Qt (MinGW) with tools
       uses: jurplel/install-qt-action@v3
       with:
         version: '6.8.3'
         arch: 'win64_mingw'
+        tools: true   # ✅ لتنزيل windeployqt.exe
 
     - name: Add Qt bin directory to PATH
       run: echo "C:\Qt\6.8.3\mingw_64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -40,6 +41,17 @@ jobs:
         qmake test_0.pro CONFIG-=no_main CONFIG+=console
         mingw32-make
 
+    - name: Debug find windeployqt
+      shell: pwsh
+      run: |
+        Write-Host "🔍 Searching for windeployqt.exe..."
+        $windeploy = Get-ChildItem -Path C:\Qt -Recurse -Filter windeployqt.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $windeploy) {
+          Write-Error "❌ windeployqt.exe not found anywhere in C:\Qt" ; exit 1
+        }
+        Write-Host "✅ Found windeployqt.exe at: $($windeploy.FullName)"
+        echo "WINDEPLOY_PATH=$($windeploy.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
     - name: Find and deploy EXE with windeployqt
       shell: pwsh
       run: |
@@ -51,13 +63,7 @@ jobs:
 
         Write-Host "✅ Found EXE: $($exe.FullName)"
 
-        $deployTool = "C:\Qt\6.8.3\mingw_64\bin\windeployqt.exe"
-
-        if (-Not (Test-Path $deployTool)) {
-          Write-Error "❌ windeployqt.exe not found at $deployTool" ; exit 1
-        }
-
-        & "$deployTool" "$($exe.FullName)"
+        & "${env:WINDEPLOY_PATH}" "$($exe.FullName)"
 
     - name: Upload built files as artifact
       uses: actions/upload-artifact@v4
