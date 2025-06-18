@@ -1,4 +1,4 @@
-name: Build Packet_Versions/Packet1/test_0.pro rola
+name: Build Packet_Versions/Packet1/test_0.pro
 
 on:
   push:
@@ -38,11 +38,13 @@ jobs:
       run: echo "Qt6_DIR is: $env:Qt6_DIR"
 
     - name: Deploy Qt dependencies using windeployqt
+      shell: pwsh
       run: |
         cd Packet_Versions/Packet1
         $exe = Get-ChildItem *.exe | Select-Object -First 1
-        if (-not $exe) {
+        if ($exe -eq $null) {
           Write-Error "❌ لم يتم العثور على أي ملف .exe في Packet1"
+          exit 1
         } else {
           Write-Host "✅ Found EXE: $($exe.Name)"
           & "$env:Qt6_DIR\bin\windeployqt.exe" $exe.Name
