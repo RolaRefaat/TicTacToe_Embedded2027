@@ -41,7 +41,7 @@ jobs:
       run: |
         cd Packet_Versions/Packet1
         $exe = Get-ChildItem *.exe | Select-Object -First 1
-        "C:\Qt\6.8.3\mingw_64\bin\windeployqt.exe" $exe.Name
+        & "C:\Qt\6.8.3\mingw_64\bin\windeployqt.exe" $exe.Name
 
     - name: Upload deployed executable with Qt DLLs
       uses: actions/upload-artifact@v4
