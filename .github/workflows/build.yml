@@ -35,6 +35,7 @@ jobs:
           mingw32-make
 
       - name: Echo Qt6_DIR path
+        shell: pwsh
         run: echo "Qt6_DIR is: $env:Qt6_DIR"
 
       - name: Deploy Qt dependencies using windeployqt
@@ -45,7 +46,8 @@ jobs:
           if ($exe -eq $null) {
             Write-Error "❌ لم يتم العثور على أي ملف .exe في Packet1"
             exit 1
-          } else {
+          }
+          else {
             Write-Host "✅ Found EXE: $($exe.Name)"
             & "$env:Qt6_DIR\bin\windeployqt.exe" $exe.Name
           }
