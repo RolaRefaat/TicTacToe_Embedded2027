@@ -1,4 +1,4 @@
-name: Build and Deploy Qt EXE using aqtinstall (dynamic spec)
+name: Build and Deploy Qt EXE using aqtinstall (with full DLL upload)
 
 on:
   push:
@@ -15,50 +15,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2) Debug workspace
-      - name: Debug workspace
-        shell: pwsh
-        run: |
-          Write-Host "🔍 Current directory:"; Get-Location
-          Write-Host "📦 Files in workspace:"; Get-ChildItem -Recurse -Force | Select-Object FullName
-
-      # 3) Install aqtinstall
+      # 2) Install aqtinstall
       - name: Install aqtinstall
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           pip install aqtinstall
 
-      # 4) Download Qt via aqtinstall & discover spec dynamically
+      # 3) Download Qt via aqtinstall & locate windeployqt
       - name: Download Qt and locate windeployqt
         shell: pwsh
         run: |
-          # 4.1) Download Qt
           aqt install-qt windows desktop 6.8.3 win64_mingw --outputdir Qt
-          
           $qtRoot = "${{ github.workspace }}\Qt\6.8.3"
-          Write-Host "🔍 Looking under $qtRoot for a spec folder containing bin\windeployqt.exe"
+          $windeploy = Get-ChildItem -Path $qtRoot -Recurse -Filter windeployqt.exe |
+                       Select-Object -First 1
+          if (-not $windeploy) { Write-Error "❌ windeployqt.exe not found under $qtRoot"; exit 1 }
+          "$($windeploy.DirectoryName)" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-          # 4.2) List subfolders for debugging
-          Get-ChildItem -Path $qtRoot -Directory | ForEach-Object { Write-Host " - Subdir:" $_.Name }
-
-          # 4.3) Find the actual spec folder
-          $spec = Get-ChildItem -Path $qtRoot -Directory `
-                    | Where-Object { Test-Path (Join-Path $_.FullName 'bin\windeployqt.exe') } `
-                    | Select-Object -First 1
-
-          if (-not $spec) {
-            Write-Error "❌ No spec folder with windeployqt.exe found under $qtRoot"
-            exit 1
-          }
-          Write-Host "✅ Found Qt spec folder:" $spec.Name
-
-          # 4.4) Add its bin to PATH
-          $qtBin = Join-Path $spec.FullName 'bin'
-          Write-Host "🔧 Adding Qt bin to PATH: $qtBin"
-          "$qtBin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      # 5) Build the project
+      # 4) Build the project
       - name: Build test_0.pro with qmake + mingw32-make
         shell: pwsh
         run: |
@@ -66,34 +41,30 @@ jobs:
           qmake test_0.pro CONFIG-=no_main CONFIG+=console
           mingw32-make
 
-      # 6) Find the generated EXE
+      # 5) Find the generated EXE and set OUTPUT_DIR
       - name: Find generated .exe
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Recurse -Filter '*.exe' |
+          $exe = Get-ChildItem -Path Packet_Versions/Packet1 -Recurse -Filter '*.exe' |
                  Where-Object { $_.FullName -notmatch 'windeployqt' } |
                  Select-Object -First 1
-
-          if (-not $exe) {
-            Write-Error "❌ No .exe found after build"
-            exit 1
-          }
+          if (-not $exe) { Write-Error "❌ No .exe found after build"; exit 1 }
+          $outDir = Split-Path $exe.FullName -Parent
           Write-Host "✅ Found EXE at: $($exe.FullName)"
-          "EXE_PATH=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "ℹ️ Setting OUTPUT_DIR=$outDir"
+          "OUTPUT_DIR=$outDir" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      # 7) Deploy Qt dependencies
+      # 6) Deploy Qt dependencies via windeployqt
       - name: Deploy Qt dependencies with windeployqt
         shell: pwsh
         run: |
-          $exePath = $env:EXE_PATH
+          $exePath = $env:EXE_PATH ?? "${{ env.OUTPUT_DIR }}\$(Split-Path $env:OUTPUT_DIR -Leaf).exe"
           Write-Host "🚀 Running windeployqt on $exePath"
           windeployqt $exePath
 
-      # 8) Upload as artifact
-      - name: Upload built files as artifact
+      # 7) Upload all files in OUTPUT_DIR (including subdirs)
+      - name: Upload deployed executable and DLLs
         uses: actions/upload-artifact@v4
         with:
           name: deployed-exe-with-dlls
-          path: |
-            **/*.exe
-            **/*.dll
+          path: ${{ env.OUTPUT_DIR }}/**/*
