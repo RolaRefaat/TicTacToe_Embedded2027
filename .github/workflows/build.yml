@@ -35,10 +35,16 @@ jobs:
         mingw32-make
 
     - name: Debug after build
-      run: ls -R
+      run: ls -R Packet_Versions/Packet1
 
-    - name: Upload build artifacts (EXE files)
+    - name: Deploy Qt dependencies using windeployqt
+      run: |
+        cd Packet_Versions/Packet1
+        $exe = Get-ChildItem *.exe | Select-Object -First 1
+        "C:\Qt\6.8.3\mingw_64\bin\windeployqt.exe" $exe.Name
+
+    - name: Upload deployed executable with Qt DLLs
       uses: actions/upload-artifact@v4
       with:
-        name: built-executables
-        path: '**/*.exe'
+        name: deployed-executable
+        path: Packet_Versions/Packet1/**
